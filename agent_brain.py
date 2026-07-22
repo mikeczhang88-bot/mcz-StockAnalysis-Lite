@@ -78,9 +78,9 @@ def build_llm():
         raise ValueError("❌ 未找到 GEMINI_API_KEY，请在 Streamlit Secrets 里添加 GEMINI_API_KEY")
     
     llm = ChatOpenAI(
-        model="gemini-1.5-flash",  # 👈 改为 gemini-1.5-flash
+        model="gemini-1.5-flash",
         api_key=gemini_key,
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        base_url="https://generativelanguage.googleapis.com/openai/",  # 👈 注意：去掉 v1beta
         temperature=0.2,
         streaming=True
     )
