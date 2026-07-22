@@ -146,6 +146,8 @@ evolve_stock_agent = create_agent_graph()
 # ==========================================
 # 5. 供前端 App.py 调用的主函数
 # ==========================================
+# agent_brain.py 文件最底部的 run_agent 函数
+
 def run_agent(symbol: str, lang: str = "zh") -> str:
     """
     运行 Agent 图并返回分析结果
@@ -169,5 +171,20 @@ def run_agent(symbol: str, lang: str = "zh") -> str:
     # 3. 运行 LangGraph 图
     final_state = evolve_stock_agent.invoke({"messages": initial_messages})
 
-    # 4. 返回最后生成的 Markdown 内容
-    return final_state["messages"][-1].content
+    # 4. 获取最后一条消息的内容
+    raw_content = final_state["messages"][-1].content
+
+    # -------------------------------------------------------------
+    # 关键修复：防止返回 [{'type': 'text', 'text': '...'}] 格式
+    # -------------------------------------------------------------
+    if isinstance(raw_content, list):
+        # 如果是列表类型，解析出内部的纯文本
+        text_parts = [
+            item["text"] for item in raw_content 
+            if isinstance(item, dict) and "text" in item
+        ]
+        return "\n".join(text_parts)
+    elif isinstance(raw_content, str):
+        return raw_content
+    else:
+        return str(raw_content)
