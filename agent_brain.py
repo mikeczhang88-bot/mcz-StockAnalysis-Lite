@@ -147,44 +147,42 @@ evolve_stock_agent = create_agent_graph()
 # 5. 供前端 App.py 调用的主函数
 # ==========================================
 # agent_brain.py 文件最底部的 run_agent 函数
+# agent_brain.py 核心修改部分
 
-def run_agent(symbol: str, lang: str = "zh") -> str:
+def run_agent(symbol: str = "", history_messages: list = None, lang: str = "zh") -> str:
     """
-    运行 Agent 图并返回分析结果
-    :param symbol: 股票代码 (例如 AAPL)
+    运行 Agent 图并返回分析或追问结果
+    :param symbol: 股票代码 (如果是首次生成报告时传入)
+    :param history_messages: 对话历史列表，格式为 [{"role": "user/assistant", "content": "..."}]
     :param lang: 语言设置 'zh' 或 'en'
     """
-    # 1. 根据语言匹配 System Prompt 和提问方式
-    if lang == "en":
-        sys_prompt = SYSTEM_PROMPT_EN
-        user_query = f"Please analyze stock {symbol}"
+    # 1. 确定系统提示词
+    sys_prompt = SYSTEM_PROMPT_EN if lang == "en" else SYSTEM_PROMPT_ZH
+
+    # 2. 构造初始消息列表 (SystemMessage 始终置顶)
+    messages = [SystemMessage(content=sys_prompt)]
+
+    # 3. 如果提供了历史上下文（追问模式），将其转化为 LangChain 消息格式
+    if history_messages:
+        for msg in history_messages:
+            if msg["role"] == "user":
+                messages.append(HumanMessage(content=msg["content"]))
+            elif msg["role"] == "assistant":
+                messages.append(AIMessage(content=msg["content"]))
     else:
-        sys_prompt = SYSTEM_PROMPT_ZH
-        user_query = f"请分析股票 {symbol}"
+        # 首次生成报告
+        user_query = f"Please analyze stock {symbol}" if lang == "en" else f"请分析股票 {symbol}"
+        messages.append(HumanMessage(content=user_query))
 
-    # 2. 构造初始消息（把对应语言的 SystemMessage 放在最前面）
-    initial_messages = [
-        SystemMessage(content=sys_prompt),
-        ("human", user_query)
-    ]
+    # 4. 执行 LangGraph 图
+    final_state = evolve_stock_agent.invoke({"messages": messages})
 
-    # 3. 运行 LangGraph 图
-    final_state = evolve_stock_agent.invoke({"messages": initial_messages})
-
-    # 4. 获取最后一条消息的内容
+    # 5. 提取并清洗模型返回结果
     raw_content = final_state["messages"][-1].content
 
-    # -------------------------------------------------------------
-    # 关键修复：防止返回 [{'type': 'text', 'text': '...'}] 格式
-    # -------------------------------------------------------------
     if isinstance(raw_content, list):
-        # 如果是列表类型，解析出内部的纯文本
-        text_parts = [
-            item["text"] for item in raw_content 
-            if isinstance(item, dict) and "text" in item
-        ]
+        text_parts = [item["text"] for item in raw_content if isinstance(item, dict) and "text" in item]
         return "\n".join(text_parts)
-    elif isinstance(raw_content, str):
-        return raw_content
-    else:
-        return str(raw_content)
+    return str(raw_content)
+    
+
