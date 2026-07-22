@@ -4,7 +4,7 @@ import yfinance as yf
 from typing import TypedDict, Annotated, Sequence
 import operator
 from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
@@ -39,7 +39,7 @@ SYSTEM_PROMPT = """你是一位顶级的华尔街量化策略师和 AI 金融分
 """
 
 # ==========================================
-# 2. 内置基础股票工具（大幅精简 Docstring）
+# 2. 内置基础股票工具
 # ==========================================
 @tool
 def fetch_stock_technical_indicators(symbol: str) -> str:
@@ -70,24 +70,24 @@ def fetch_stock_technical_indicators(symbol: str) -> str:
         return f"获取指标失败: {str(e)}"
 
 # ==========================================
-# 3. 初始化 LLM
+# 3. 初始化 LLM（切换为 OpenAI 兼容 Endpoint 调 Gemini）
 # ==========================================
 def build_llm():
     gemini_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not gemini_key:
         raise ValueError("❌ 未找到 GEMINI_API_KEY，请在 Streamlit Secrets 里添加 GEMINI_API_KEY")
     
-    selected_model = "gemini-1.5-flash-latest"
-    llm = ChatGoogleGenerativeAI(
-        model=selected_model,
-        google_api_key=gemini_key,
+    llm = ChatOpenAI(
+        model="gemini-2.0-flash",
+        api_key=gemini_key,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         temperature=0.2,
         streaming=True
     )
     return llm
 
 # ==========================================
-# 4. LangGraph 构建（限制单次工具调用循环）
+# 4. LangGraph 构建
 # ==========================================
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
@@ -107,8 +107,6 @@ def create_agent_graph():
     def should_continue(state: AgentState):
         messages = state["messages"]
         last_message = messages[-1]
-        
-        # 检查是否已经执行过工具（如果已经存在 ToolMessage，强制结束，不让它再次调用工具）
         tool_already_called = any(isinstance(m, ToolMessage) for m in messages)
         
         if last_message.tool_calls and not tool_already_called:
