@@ -152,54 +152,61 @@ def extract_text(raw_content) -> str:
 def classify_user_intent(text: str) -> tuple[str, str]:
     """
     智能识别用户意图：
-    1. 'quick_price': 仅查询股价/简讯 (例如: "JNJ股价", "JNJ现在股价是多少")
-    2. 'full_report': 生成完整报告 (例如: "JNJ", "分析 TSLA")
+    1. 'quick_price': 查询股价/指标简讯
+    2. 'full_report': 生成完整深度报告
     3. 'chat': 普通追问或知识咨询
     """
     text_clean = text.strip()
     text_upper = text_clean.upper()
 
-    # 1. 判断是否包含询问股价/价格相关关键词
+    # 1. 查股价/价格判断 (包含 股价/价格/现价/多少钱/price/quote 等关键词)
     price_keywords = r'(股价|价格|现价|多少钱|PRICE|QUOTE)'
     if re.search(price_keywords, text_upper):
-        # 提取其中的股票代码 (1-5位大写字母)
-        match = re.search(r'\b[A-Z]{1,5}\b', text_upper)
-        if match:
-            return 'quick_price', match.group(0)
+        # 提取 1-5 位连续英文字母（无需单词边界，如 JNJ现在 -> JNJ）
+        match = re.search(r'[A-Z]{1,5}', text_upper)
+        symbol = match.group(0) if match else text_clean
+        return 'quick_price', symbol
 
-    # 2. 判断是否是纯代码/分析指令 (例如 "JNJ", "分析 JNJ")
+    # 2. 生成完整报告判断 (纯代码或 "分析 JNJ")
     ticker_match = re.sub(r'^(分析|ANALYZE|CHECK|LOOK UP|报告|RESEARCH)\s*', '', text_upper, flags=re.IGNORECASE)
     if re.match(r'^[A-Z0-9\.\-]{1,6}$', ticker_match):
         return 'full_report', ticker_match
 
-    # 3. 其他归为自由追问
+    # 3. 其他所有情况归为普通对话
     return 'chat', text_clean
+
 
 def run_agent(user_input: str, history_messages: list = None, lang: str = "zh") -> tuple[str, bool]:
     sys_prompt = SYSTEM_PROMPT_EN if lang == "en" else SYSTEM_PROMPT_ZH
     intent, payload = classify_user_intent(user_input)
 
-    # 场景 1：简短查询股价
+    # -------------------------------------------------------------
+    # 场景 1：简短查询股价 -> 极简回答，严禁报告
+    # -------------------------------------------------------------
     if intent == 'quick_price':
         prompt_price = (
-            f"User only wants a quick price/indicator check for {payload}. "
-            f"Call `fetch_stock_technical_indicators('{payload}')` once. "
-            f"Reply in 2-3 short sentences with the latest price, MA20, RSI, and a 1-sentence brief comment. "
-            f"DO NOT output the 5-section full report!"
+            f"The user wants a quick price & indicator query for stock '{payload}'. "
+            f"1. Call `fetch_stock_technical_indicators('{payload}')` once.\n"
+            f"2. Answer directly in 2-3 short sentences with the latest price, MA20, RSI, and a very brief 1-sentence comment.\n"
+            f"3. DO NOT output headers or full analysis reports!"
         ) if lang == "en" else (
-            f"用户只想快速查询 {payload} 的最新股价与指标。"
-            f"请调用 1 次 `fetch_stock_technical_indicators('{payload}')` 工具，"
-            f"用 2-3 句话直接回答当前最新现价、MA20和RSI14，并附带一句极简点评即可。"
-            f"绝对不要输出 5 段式的大报告！"
+            f"用户正在快速查询股票 '{payload}' 的当前股价与指标。\n"
+            f"1. 请调用 1 次 `fetch_stock_technical_indicators('{payload}')` 工具。\n"
+            f"2. 用 2-3 句话直接回答最新现价、MA20、RSI14，并附带一句极简点评。\n"
+            f"3. 绝对不要输出 Markdown 标题，绝对不要输出 5 段式大报告！"
         )
+        
+        # 使用独立的轻量级 Prompt，彻底脱离大报告约束
         messages = [
-            SystemMessage(content="你是一位高效率的 AI 金融助手。回答请简洁明了，直接给出数据。"),
+            SystemMessage(content="你是一位高效的 AI 金融助手。只回答核心数据与简短结论，简洁明了。"),
             HumanMessage(content=prompt_price)
         ]
         final_state = evolve_stock_agent.invoke({"messages": messages})
         return extract_text(final_state["messages"][-1].content), False
 
-    # 场景 2：生成完整报告
+    # -------------------------------------------------------------
+    # 场景 2：纯股票代码/分析指令 -> 生成 5 段式完整深度报告
+    # -------------------------------------------------------------
     elif intent == 'full_report':
         messages = [
             SystemMessage(content=sys_prompt),
@@ -208,15 +215,20 @@ def run_agent(user_input: str, history_messages: list = None, lang: str = "zh") 
         final_state = evolve_stock_agent.invoke({"messages": messages})
         return extract_text(final_state["messages"][-1].content), True
 
-    # 场景 3：普通追问与多轮对话
+    # -------------------------------------------------------------
+    # 场景 3：普通追问与多轮对话 -> 灵活回答，不套用大报告格式
+    # -------------------------------------------------------------
     else:
-        messages = [SystemMessage(content=sys_prompt)]
+        chat_sys_prompt = "你是专业、亲切的 AI 金融助手。根据用户的提问和上下文进行解答，回答精炼专业。"
+        messages = [SystemMessage(content=chat_sys_prompt)]
+        
         if history_messages:
             for msg in history_messages:
                 if msg["role"] == "user":
                     messages.append(HumanMessage(content=msg["content"]))
                 elif msg["role"] == "assistant":
                     messages.append(AIMessage(content=msg["content"]))
+                    
         messages.append(HumanMessage(content=user_input))
         final_state = evolve_stock_agent.invoke({"messages": messages})
         return extract_text(final_state["messages"][-1].content), False
