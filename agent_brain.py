@@ -77,11 +77,12 @@ def build_llm():
     gemini_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not gemini_key:
         raise ValueError("❌ 未找到 GEMINI_API_KEY，请在 Streamlit Secrets 里添加 GEMINI_API_KEY")
-    
-    # 切换为当前官方标准且稳定支持的 Gemini 2.5 Flash 模型
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=gemini_key,
+
+    # 使用 OpenAI 兼容接口，基准 Base URL 指向 Google 官方 API
+    llm = ChatOpenAI(
+        model="gemini-2.0-flash",
+        api_key=gemini_key,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         temperature=0.2,
         streaming=True
     )
