@@ -1,93 +1,59 @@
 import streamlit as st
-from agent_brain import evolve_stock_agent
+from agent_brain import run_agent # 假设您的运行入口函数为 run_agent
 
-# 1. 页面基本配置
-st.set_page_config(
-    page_title="AI 量化股票分析 Agent",
-    page_icon="📈",
-    layout="wide"
-)
+# -------------------------------------------------------------------
+# 1. 语言配置字典 (UI 文本)
+# -------------------------------------------------------------------
+I18N = {
+    "zh": {
+        "title": "📈 MCZ StockAnalysis-Lite (AI 智能股票分析系统)",
+        "sidebar_lang": "语言 / Language",
+        "input_label": "请输入要分析的股票代码（如 AAPL, TSLA）：",
+        "analyze_btn": "开始分析",
+        "running_msg": "Agent 正在分析中，请稍候...",
+        "error_msg": "分析过程出现错误："
+    },
+    "en": {
+        "title": "📈 MCZ StockAnalysis-Lite (AI Stock Analysis System)",
+        "sidebar_lang": "Language / 语言",
+        "input_label": "Enter Stock Ticker (e.g., AAPL, TSLA):",
+        "analyze_btn": "Analyze",
+        "running_msg": "Agent is analyzing, please wait...",
+        "error_msg": "An error occurred during analysis:"
+    }
+}
 
-# 2. 页面大标题与说明
-st.title("📈 AI 机构级美股量化分析 Agent")
-st.markdown("输入美股代码（如 COST, NVDA, AAPL），自动调用实时数据并生成深度多维研报。")
+st.set_page_config(page_title="Stock Analysis Lite", layout="wide")
 
-# 3. 侧边栏设置与说明
+# -------------------------------------------------------------------
+# 2. 侧边栏：语言选择器
+# -------------------------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ 控制面板")
-    st.info("💡 **系统状态**：已接入 Gemini API 与 LangGraph 智能智能体网络。")
-    st.markdown("---")
-    st.markdown("### 📌 快捷测试代码")
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
-    
-    # 快捷输入按钮
-    selected_symbol = None
-    if col_btn1.button("COST"):
-        selected_symbol = "COST"
-    if col_btn2.button("NVDA"):
-        selected_symbol = "NVDA"
-    if col_btn3.button("AAPL"):
-        selected_symbol = "AAPL"
+    lang_choice = st.radio(
+        "Language / 语言",
+        options=["中文", "English"],
+        index=0
+    )
+    # 映射语言代码
+    lang_code = "zh" if lang_choice == "中文" else "en"
+    t = I18N[lang_code]
 
-# 4. 初始化 Session State 保持聊天历史
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# -------------------------------------------------------------------
+# 3. 主界面 UI 渲染
+# -------------------------------------------------------------------
+st.title(t["title"])
 
-# 5. 渲染历史对话记录
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+symbol = st.text_input(t["input_label"], value="AAPL")
 
-# 6. 处理用户输入（支持键盘输入或点击侧边栏按钮）
-user_input = st.chat_input("输入美股代码或分析指令，例如：分析 COST 的技术面与基本面")
-
-# 如果点击了侧边栏快捷按钮，覆盖 user_input
-if selected_symbol:
-    user_input = f"请对 {selected_symbol} 进行全面的技术面与基本面量化分析"
-
-# 7. 主分析逻辑
-if user_input:
-    # 显示用户消息
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
-
-    # 渲染 AI 实时打字机回答
-    with st.chat_message("assistant"):
-        response_placeholder = st.empty()
-        full_response = ""
-
-        # 构建发送给 LangGraph Agent 的输入格式
-        inputs = {"messages": [("user", user_input)]}
-
-        try:
-            # 运行 LangGraph 流式响应
-            for event in evolve_stock_agent.stream(inputs, stream_mode="updates"):
-                for node_name, value in event.items():
-                    if "messages" in value:
-                        last_msg = value["messages"][-1]
-                        
-                        # 过滤掉工具调用消息，只处理模型返回的最终分析文本
-                        if hasattr(last_msg, "content") and last_msg.content and not getattr(last_msg, "tool_calls", None):
-                            content = last_msg.content
-                            
-                            # 提取文本内容：兼容字符串格式与 block 列表格式
-                            if isinstance(content, str):
-                                full_response += content
-                            elif isinstance(content, list):
-                                for block in content:
-                                    if isinstance(block, dict) and block.get("type") == "text":
-                                        full_response += block.get("text", "")
-                            
-                            # 实时刷新页面（带打字光标效果）
-                            response_placeholder.markdown(full_response + "▌")
-
-            # 最终渲染干净的 Markdown 研报（去掉光标）
-            response_placeholder.markdown(full_response)
-            
-            # 保存 AI 回复到历史会话
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
-
-        except Exception as e:
-            error_msg = f"❌ 分析过程中出现错误: {str(e)}"
-            response_placeholder.error(error_msg)
+if st.button(t["analyze_btn"]):
+    if not symbol:
+        st.warning("Please enter a stock ticker / 请输入股票代码")
+    else:
+        with st.spinner(t["running_msg"]):
+            try:
+                # 将用户选择的语言代码 (lang_code) 传递给 agent_brain
+                # 提示：如果是流式输出，请根据您的实际 agent 调用逻辑处理
+                response = run_agent(symbol=symbol, lang=lang_code)
+                st.markdown(response)
+            except Exception as e:
+                st.error(f"{t['error_msg']} {e}")
