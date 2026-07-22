@@ -13,10 +13,7 @@ yfinance
 langchain>=0.3.0
 langchain-core
 langchain-community
-langchain-openai>=0.1.0
 langchain-google-genai>=2.0.0
-google-genai
-# google-generativeai>=0.8.0
 langgraph>=0.2.0
 
 # 官方 API SDK
