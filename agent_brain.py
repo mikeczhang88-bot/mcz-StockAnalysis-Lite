@@ -158,38 +158,87 @@ evolve_stock_agent = create_agent_graph()
 # ==========================================
 # agent_brain.py 文件最底部的 run_agent 函数
 # agent_brain.py 核心修改部分
+def classify_user_intent(text: str) -> tuple[str, str]:
+    """
+    智能识别用户意图：
+    1. 'quick_price': 仅查询股价/简讯 (例如: "JNJ股价", "AAPL多少钱", "TSLA价格")
+    2. 'full_report': 生成完整报告 (例如: "JNJ", "AAPL", "分析 TSLA", "NVDA报告")
+    3. 'chat': 普通追问或知识咨询
+    """
+    text_clean = text.strip()
+    text_upper = text_clean.upper()
+
+    # 1. 判断是否是查股价/简讯（带有“价/价格/多少钱/price”等词）
+    price_keywords = r'(股价|价格|现价|多少钱|PRICE|QUOTE)'
+    if re.search(price_keywords, text_upper):
+        # 提取其中的股票代码 (1-5位大写字母)
+        match = re.search(r'\b[A-Z]{1,5}\b', text_upper)
+        if match:
+            return 'quick_price', match.group(0)
+
+    # 2. 判断是否是纯代码/分析指令 (例如 "JNJ", "分析 JNJ")
+    ticker_match = re.sub(r'^(分析|ANALYZE|CHECK|LOOK UP|报告|RESEARCH)\s*', '', text_upper, flags=re.IGNORECASE)
+    if re.match(r'^[A-Z0-9\.\-]{1,6}$', ticker_match):
+        return 'full_report', ticker_match
+
+    # 3. 其他情况归为自由对话/追问
+    return 'chat', text_clean
+
+
 def run_agent(user_input: str, history_messages: list = None, lang: str = "zh") -> tuple[str, bool]:
     """
-    统一入口：自动识别是生成新报告还是追问
-    :return: (回复内容, 是否是新报告)
+    统一入口函数
+    :return: (回复内容, 是否清空并开始新话题)
     """
     sys_prompt = SYSTEM_PROMPT_EN if lang == "en" else SYSTEM_PROMPT_ZH
-    is_ticker, symbol = is_stock_ticker(user_input)
+    intent, payload = classify_user_intent(user_input)
 
-    # 1. 如果输入的是股票代码 -> 触发生成全新报告
-    if is_ticker:
+    # -------------------------------------------------------------
+    # 场景 1：用户只想查【股价/简讯】 -> 给出一句话/简短回答，不生成长报告
+    # -------------------------------------------------------------
+    if intent == 'quick_price':
+        prompt_price = (
+            f"User only wants a quick price/indicator check for {payload}. "
+            f"Call `fetch_stock_technical_indicators('{payload}')` once. "
+            f"Reply in 2-3 short sentences with the latest price, MA20, RSI, and a 1-sentence brief comment. "
+            f"DO NOT output the 5-section full report!"
+        ) if lang == "en" else (
+            f"用户只想快速查询 {payload} 的最新股价与指标。"
+            f"请调用 1 次 `fetch_stock_technical_indicators('{payload}')` 工具，"
+            f"用 2-3 句话直接回答当前最新现价、MA20和RSI14，并附带一句极简点评即可。"
+            f"绝对不要输出 5 段式的大报告！"
+        )
+        
+        messages = [
+            SystemMessage(content="你是一位高效率的 AI 金融助手。回答请简洁明了，直接给出数据。"),
+            HumanMessage(content=prompt_price)
+        ]
+        final_state = evolve_stock_agent.invoke({"messages": messages})
+        return extract_text(final_state["messages"][-1].content), False
+
+    # -------------------------------------------------------------
+    # 场景 2：用户输入纯代码/分析请求 -> 生成 5 段式【完整深度报告】
+    # -------------------------------------------------------------
+    elif intent == 'full_report':
         messages = [
             SystemMessage(content=sys_prompt),
-            HumanMessage(content=f"Please analyze stock {symbol}" if lang == "en" else f"请分析股票 {symbol}")
+            HumanMessage(content=f"Please analyze stock {payload}" if lang == "en" else f"请分析股票 {payload}")
         ]
         final_state = evolve_stock_agent.invoke({"messages": messages})
         return extract_text(final_state["messages"][-1].content), True
 
-    # 2. 如果是普通提问/追问 -> 带上历史上下文回答
-    messages = [SystemMessage(content=sys_prompt)]
-    if history_messages:
-        for msg in history_messages:
-            if msg["role"] == "user":
-                messages.append(HumanMessage(content=msg["content"]))
-            elif msg["role"] == "assistant":
-                messages.append(AIMessage(content=msg["content"]))
-    
-    messages.append(HumanMessage(content=user_input))
-    final_state = evolve_stock_agent.invoke({"messages": messages})
-    return extract_text(final_state["messages"][-1].content), False
-
-def extract_text(raw_content) -> str:
-    """清洗返回内容"""
-    if isinstance(raw_content, list):
-        return "\n".join([item["text"] for item in raw_content if isinstance(item, dict) and "text" in item])
-    return str(raw_content)
+    # -------------------------------------------------------------
+    # 场景 3：普通追问与多轮对话
+    # -------------------------------------------------------------
+    else:
+        messages = [SystemMessage(content=sys_prompt)]
+        if history_messages:
+            for msg in history_messages:
+                if msg["role"] == "user":
+                    messages.append(HumanMessage(content=msg["content"]))
+                elif msg["role"] == "assistant":
+                    messages.append(AIMessage(content=msg["content"]))
+        
+        messages.append(HumanMessage(content=user_input))
+        final_state = evolve_stock_agent.invoke({"messages": messages})
+        return extract_text(final_state["messages"][-1].content), False
