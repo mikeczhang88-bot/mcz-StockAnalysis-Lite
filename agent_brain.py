@@ -1,29 +1,19 @@
 import os
+import re
+import operator
 import streamlit as st
 import yfinance as yf
 from typing import TypedDict, Annotated, Sequence
-import operator
-from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
+
+from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage, HumanMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
 
-import re
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-
-def is_stock_ticker(text: str) -> bool:
-    """简单正则判断：是否为纯股票代码（如 AAPL, TSLA, 600519）或简单的“分析 AAPL”指令"""
-    text = text.strip().upper()
-    # 匹配 1-6 位的英文字符，或类似于 "分析 AAPL" / "ANALYZE AAPL"
-    clean_text = re.sub(r'^(分析|ANALYZE|CHECK|LOOK UP)\s*', '', text, flags=re.IGNORECASE)
-    return bool(re.match(r'^[A-Z0-9\.\-]{1,6}$', clean_text)), clean_text
-    
 # ==========================================
 # 1. 系统提示词配置 (中文 + 清晰 Markdown)
 # ==========================================
-# agent_brain.py 中的提示词更新
-
 SYSTEM_PROMPT_ZH = """你是一位顶级的华尔街量化策略师和 AI 金融分析师。
 
 【极重要规则】
@@ -98,14 +88,13 @@ def fetch_stock_technical_indicators(symbol: str) -> str:
         return f"获取指标失败: {str(e)}"
 
 # ==========================================
-# 3. 初始化 LLM（标准原生 API 写法 + v1beta 路径指定）
+# 3. 初始化 LLM
 # ==========================================
 def build_llm():
     gemini_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not gemini_key:
         raise ValueError("❌ 未找到 GEMINI_API_KEY，请在 Streamlit Secrets 里添加 GEMINI_API_KEY")
     
-    # 使用官方推荐的通用最新模型别名
     llm = ChatGoogleGenerativeAI(
         model="gemini-flash-latest",
         google_api_key=gemini_key,
@@ -114,9 +103,6 @@ def build_llm():
     )
     return llm
 
-# ==========================================
-# 4. LangGraph 构建
-# ==========================================
 # ==========================================
 # 4. LangGraph 构建
 # ==========================================
@@ -130,7 +116,6 @@ def create_agent_graph():
 
     def agent_node(state: AgentState):
         messages = state["messages"]
-        # 直接调用模型，SystemMessage 会由 run_agent 初始化时放入 messages 开头
         response = llm_with_tools.invoke(messages)
         return {"messages": [response]}
 
@@ -138,6 +123,7 @@ def create_agent_graph():
         messages = state["messages"]
         last_message = messages[-1]
         tool_already_called = any(isinstance(m, ToolMessage) for m in messages)
+        
         if last_message.tool_calls and not tool_already_called:
             return "tools"
         return END
@@ -146,29 +132,34 @@ def create_agent_graph():
     workflow.add_node("agent", agent_node)
     workflow.add_node("tools", ToolNode(tools))
     workflow.set_entry_point("agent")
+    
     workflow.add_conditional_edges("agent", should_continue, ["tools", END])
     workflow.add_edge("tools", "agent")
-
+    
     return workflow.compile()
 
 evolve_stock_agent = create_agent_graph()
 
 # ==========================================
-# 5. 供前端 App.py 调用的主函数
+# 5. 辅助与主运行逻辑
 # ==========================================
-# agent_brain.py 文件最底部的 run_agent 函数
-# agent_brain.py 核心修改部分
+def extract_text(raw_content) -> str:
+    """清洗与提取 LLM 输出文本"""
+    if isinstance(raw_content, list):
+        return "\n".join([item["text"] for item in raw_content if isinstance(item, dict) and "text" in item])
+    return str(raw_content)
+
 def classify_user_intent(text: str) -> tuple[str, str]:
     """
     智能识别用户意图：
-    1. 'quick_price': 仅查询股价/简讯 (例如: "JNJ股价", "AAPL多少钱", "TSLA价格")
-    2. 'full_report': 生成完整报告 (例如: "JNJ", "AAPL", "分析 TSLA", "NVDA报告")
+    1. 'quick_price': 仅查询股价/简讯 (例如: "JNJ股价", "JNJ现在股价是多少")
+    2. 'full_report': 生成完整报告 (例如: "JNJ", "分析 TSLA")
     3. 'chat': 普通追问或知识咨询
     """
     text_clean = text.strip()
     text_upper = text_clean.upper()
 
-    # 1. 判断是否是查股价/简讯（带有“价/价格/多少钱/price”等词）
+    # 1. 判断是否包含询问股价/价格相关关键词
     price_keywords = r'(股价|价格|现价|多少钱|PRICE|QUOTE)'
     if re.search(price_keywords, text_upper):
         # 提取其中的股票代码 (1-5位大写字母)
@@ -181,21 +172,14 @@ def classify_user_intent(text: str) -> tuple[str, str]:
     if re.match(r'^[A-Z0-9\.\-]{1,6}$', ticker_match):
         return 'full_report', ticker_match
 
-    # 3. 其他情况归为自由对话/追问
+    # 3. 其他归为自由追问
     return 'chat', text_clean
 
-
 def run_agent(user_input: str, history_messages: list = None, lang: str = "zh") -> tuple[str, bool]:
-    """
-    统一入口函数
-    :return: (回复内容, 是否清空并开始新话题)
-    """
     sys_prompt = SYSTEM_PROMPT_EN if lang == "en" else SYSTEM_PROMPT_ZH
     intent, payload = classify_user_intent(user_input)
 
-    # -------------------------------------------------------------
-    # 场景 1：用户只想查【股价/简讯】 -> 给出一句话/简短回答，不生成长报告
-    # -------------------------------------------------------------
+    # 场景 1：简短查询股价
     if intent == 'quick_price':
         prompt_price = (
             f"User only wants a quick price/indicator check for {payload}. "
@@ -208,7 +192,6 @@ def run_agent(user_input: str, history_messages: list = None, lang: str = "zh") 
             f"用 2-3 句话直接回答当前最新现价、MA20和RSI14，并附带一句极简点评即可。"
             f"绝对不要输出 5 段式的大报告！"
         )
-        
         messages = [
             SystemMessage(content="你是一位高效率的 AI 金融助手。回答请简洁明了，直接给出数据。"),
             HumanMessage(content=prompt_price)
@@ -216,9 +199,7 @@ def run_agent(user_input: str, history_messages: list = None, lang: str = "zh") 
         final_state = evolve_stock_agent.invoke({"messages": messages})
         return extract_text(final_state["messages"][-1].content), False
 
-    # -------------------------------------------------------------
-    # 场景 2：用户输入纯代码/分析请求 -> 生成 5 段式【完整深度报告】
-    # -------------------------------------------------------------
+    # 场景 2：生成完整报告
     elif intent == 'full_report':
         messages = [
             SystemMessage(content=sys_prompt),
@@ -227,9 +208,7 @@ def run_agent(user_input: str, history_messages: list = None, lang: str = "zh") 
         final_state = evolve_stock_agent.invoke({"messages": messages})
         return extract_text(final_state["messages"][-1].content), True
 
-    # -------------------------------------------------------------
     # 场景 3：普通追问与多轮对话
-    # -------------------------------------------------------------
     else:
         messages = [SystemMessage(content=sys_prompt)]
         if history_messages:
@@ -238,7 +217,6 @@ def run_agent(user_input: str, history_messages: list = None, lang: str = "zh") 
                     messages.append(HumanMessage(content=msg["content"]))
                 elif msg["role"] == "assistant":
                     messages.append(AIMessage(content=msg["content"]))
-        
         messages.append(HumanMessage(content=user_input))
         final_state = evolve_stock_agent.invoke({"messages": messages})
         return extract_text(final_state["messages"][-1].content), False
