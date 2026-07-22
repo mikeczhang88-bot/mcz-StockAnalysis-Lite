@@ -9,6 +9,16 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
 
+import re
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+
+def is_stock_ticker(text: str) -> bool:
+    """简单正则判断：是否为纯股票代码（如 AAPL, TSLA, 600519）或简单的“分析 AAPL”指令"""
+    text = text.strip().upper()
+    # 匹配 1-6 位的英文字符，或类似于 "分析 AAPL" / "ANALYZE AAPL"
+    clean_text = re.sub(r'^(分析|ANALYZE|CHECK|LOOK UP)\s*', '', text, flags=re.IGNORECASE)
+    return bool(re.match(r'^[A-Z0-9\.\-]{1,6}$', clean_text)), clean_text
+    
 # ==========================================
 # 1. 系统提示词配置 (中文 + 清晰 Markdown)
 # ==========================================
@@ -148,41 +158,38 @@ evolve_stock_agent = create_agent_graph()
 # ==========================================
 # agent_brain.py 文件最底部的 run_agent 函数
 # agent_brain.py 核心修改部分
-
-def run_agent(symbol: str = "", history_messages: list = None, lang: str = "zh") -> str:
+def run_agent(user_input: str, history_messages: list = None, lang: str = "zh") -> tuple[str, bool]:
     """
-    运行 Agent 图并返回分析或追问结果
-    :param symbol: 股票代码 (如果是首次生成报告时传入)
-    :param history_messages: 对话历史列表，格式为 [{"role": "user/assistant", "content": "..."}]
-    :param lang: 语言设置 'zh' 或 'en'
+    统一入口：自动识别是生成新报告还是追问
+    :return: (回复内容, 是否是新报告)
     """
-    # 1. 确定系统提示词
     sys_prompt = SYSTEM_PROMPT_EN if lang == "en" else SYSTEM_PROMPT_ZH
+    is_ticker, symbol = is_stock_ticker(user_input)
 
-    # 2. 构造初始消息列表 (SystemMessage 始终置顶)
+    # 1. 如果输入的是股票代码 -> 触发生成全新报告
+    if is_ticker:
+        messages = [
+            SystemMessage(content=sys_prompt),
+            HumanMessage(content=f"Please analyze stock {symbol}" if lang == "en" else f"请分析股票 {symbol}")
+        ]
+        final_state = evolve_stock_agent.invoke({"messages": messages})
+        return extract_text(final_state["messages"][-1].content), True
+
+    # 2. 如果是普通提问/追问 -> 带上历史上下文回答
     messages = [SystemMessage(content=sys_prompt)]
-
-    # 3. 如果提供了历史上下文（追问模式），将其转化为 LangChain 消息格式
     if history_messages:
         for msg in history_messages:
             if msg["role"] == "user":
                 messages.append(HumanMessage(content=msg["content"]))
             elif msg["role"] == "assistant":
                 messages.append(AIMessage(content=msg["content"]))
-    else:
-        # 首次生成报告
-        user_query = f"Please analyze stock {symbol}" if lang == "en" else f"请分析股票 {symbol}"
-        messages.append(HumanMessage(content=user_query))
-
-    # 4. 执行 LangGraph 图
-    final_state = evolve_stock_agent.invoke({"messages": messages})
-
-    # 5. 提取并清洗模型返回结果
-    raw_content = final_state["messages"][-1].content
-
-    if isinstance(raw_content, list):
-        text_parts = [item["text"] for item in raw_content if isinstance(item, dict) and "text" in item]
-        return "\n".join(text_parts)
-    return str(raw_content)
     
+    messages.append(HumanMessage(content=user_input))
+    final_state = evolve_stock_agent.invoke({"messages": messages})
+    return extract_text(final_state["messages"][-1].content), False
 
+def extract_text(raw_content) -> str:
+    """清洗返回内容"""
+    if isinstance(raw_content, list):
+        return "\n".join([item["text"] for item in raw_content if isinstance(item, dict) and "text" in item])
+    return str(raw_content)
