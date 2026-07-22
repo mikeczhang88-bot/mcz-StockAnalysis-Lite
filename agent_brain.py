@@ -118,6 +118,9 @@ def build_llm():
 # ==========================================
 # 4. LangGraph 构建
 # ==========================================
+# ==========================================
+# 4. LangGraph 构建
+# ==========================================
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
 
@@ -128,8 +131,7 @@ def create_agent_graph():
 
     def agent_node(state: AgentState):
         messages = state["messages"]
-        if not any(isinstance(m, SystemMessage) for m in messages):
-            messages = [SystemMessage(content=SYSTEM_PROMPT)] + list(messages)
+        # 直接调用模型，SystemMessage 会由 run_agent 初始化时放入 messages 开头
         response = llm_with_tools.invoke(messages)
         return {"messages": [response]}
 
@@ -137,7 +139,6 @@ def create_agent_graph():
         messages = state["messages"]
         last_message = messages[-1]
         tool_already_called = any(isinstance(m, ToolMessage) for m in messages)
-        
         if last_message.tool_calls and not tool_already_called:
             return "tools"
         return END
@@ -152,3 +153,32 @@ def create_agent_graph():
     return workflow.compile()
 
 evolve_stock_agent = create_agent_graph()
+
+# ==========================================
+# 5. 供前端 App.py 调用的主函数
+# ==========================================
+def run_agent(symbol: str, lang: str = "zh") -> str:
+    """
+    运行 Agent 图并返回分析结果
+    :param symbol: 股票代码 (例如 AAPL)
+    :param lang: 语言设置 'zh' 或 'en'
+    """
+    # 1. 根据语言匹配 System Prompt 和提问方式
+    if lang == "en":
+        sys_prompt = SYSTEM_PROMPT_EN
+        user_query = f"Please analyze stock {symbol}"
+    else:
+        sys_prompt = SYSTEM_PROMPT_ZH
+        user_query = f"请分析股票 {symbol}"
+
+    # 2. 构造初始消息（把对应语言的 SystemMessage 放在最前面）
+    initial_messages = [
+        SystemMessage(content=sys_prompt),
+        ("human", user_query)
+    ]
+
+    # 3. 运行 LangGraph 图
+    final_state = evolve_stock_agent.invoke({"messages": initial_messages})
+
+    # 4. 返回最后生成的 Markdown 内容
+    return final_state["messages"][-1].content
