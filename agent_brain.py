@@ -4,8 +4,8 @@ import yfinance as yf
 from typing import TypedDict, Annotated, Sequence
 import operator
 from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
-# from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
+# from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
