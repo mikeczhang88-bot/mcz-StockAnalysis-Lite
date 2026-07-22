@@ -4,29 +4,10 @@ import yfinance as yf
 from typing import TypedDict, Annotated, Sequence
 import operator
 from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
-from langchain_google_genai import ChatGoogleGenerativeAI  # 👈 1. 使用官方原生 SDK
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
-
-# ... [前面的 SYSTEM_PROMPT 和 fetch_stock_technical_indicators 保持不变] ...
-
-# ==========================================
-# 3. 初始化 LLM（标准原生 API 写法）
-# ==========================================
-def build_llm():
-    gemini_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not gemini_key:
-        raise ValueError("❌ 未找到 GEMINI_API_KEY，请在 Streamlit Secrets 里添加 GEMINI_API_KEY")
-    
-    # 使用 Google 官方标准包和官方通用模型标识符
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",  # 👈 2. 付费账户下使用 gemini-2.0-flash 稳定无阻
-        google_api_key=gemini_key,
-        temperature=0.2,
-        streaming=True
-    )
-    return llm
 
 # ==========================================
 # 1. 系统提示词配置 (中文 + 清晰 Markdown)
@@ -89,21 +70,18 @@ def fetch_stock_technical_indicators(symbol: str) -> str:
         return f"获取指标失败: {str(e)}"
 
 # ==========================================
-# 3. 初始化 LLM（切换为 OpenAI 兼容 Endpoint 调 Gemini） - 替换
-# ==========================================
-# ==========================================
-# 3. 初始化 LLM（标准原生 API 写法）
+# 3. 初始化 LLM（标准原生 API 写法 + v1beta 路径指定）
 # ==========================================
 def build_llm():
     gemini_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not gemini_key:
         raise ValueError("❌ 未找到 GEMINI_API_KEY，请在 Streamlit Secrets 里添加 GEMINI_API_KEY")
     
-    # 显式指定 API 路径版本为 v1beta
+    # 指定 model="gemini-2.0-flash" 配合 version="v1beta"
     llm = ChatGoogleGenerativeAI(
         model="gemini-2.0-flash",
         google_api_key=gemini_key,
-        version="v1beta",  # 👈 关键点：指定 v1beta 路径
+        version="v1beta",
         temperature=0.2,
         streaming=True
     )
@@ -139,11 +117,10 @@ def create_agent_graph():
     workflow = StateGraph(AgentState)
     workflow.add_node("agent", agent_node)
     workflow.add_node("tools", ToolNode(tools))
-    
     workflow.set_entry_point("agent")
     workflow.add_conditional_edges("agent", should_continue, ["tools", END])
     workflow.add_edge("tools", "agent")
-    
+
     return workflow.compile()
 
 evolve_stock_agent = create_agent_graph()
