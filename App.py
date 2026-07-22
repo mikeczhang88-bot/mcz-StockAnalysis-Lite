@@ -7,41 +7,19 @@ from agent_brain import run_agent
 st.set_page_config(
     page_title="MCZ Stock Analysis",
     layout="wide",
-    initial_sidebar_state="collapsed"  # 手机端默认收起侧边栏，体验更好
+    initial_sidebar_state="collapsed"  # 默认折叠侧边栏，避免移动端遮挡
 )
 
 # -------------------------------------------------------------------
-# 2. 移动端 CSS 瘦身（极小化侧边栏宽度）
-# -------------------------------------------------------------------
-st.markdown(
-    """
-    <style>
-        /* 强制缩小侧边栏宽度，适应手机显示 */
-        section[data-testid="stSidebar"] {
-            width: 200px !important;
-            min-width: 180px !important;
-        }
-        /* 缩小侧边栏内部 padding，显得更紧凑 */
-        div[data-testid="stSidebarUserContent"] {
-            padding-top: 1rem;
-            padding-left: 0.8rem;
-            padding-right: 0.8rem;
-        }
-    </style>
-    """,
-    unsafe_allow_code=True
-)
-
-# -------------------------------------------------------------------
-# 3. i18n 多语言配置字典
+# 2. i18n 多语言配置字典
 # -------------------------------------------------------------------
 I18N = {
     "zh": {
         "title": "📈 MCZ StockAnalysis-Lite",
         "subtitle": "AI 智能股票分析系统",
         "about_title": "💡 系统简介",
-        "about_desc": "基于 LangGraph 与 Gemini 驱动，结合实时技术指标（MA20、RSI14），一键生成机构级报告。",
-        "lang_label": "语言 / Language",
+        "about_desc": "基于 LangGraph 与 Gemini 驱动，结合实时技术指标（MA20、RSI14），一键生成机构级股票多维度分析报告。",
+        "lang_label": "界面语言 / Language",
         "input_label": "请输入股票代码：",
         "input_placeholder": "例如：AAPL, TSLA",
         "analyze_btn": "开始分析",
@@ -71,14 +49,12 @@ I18N = {
 }
 
 # -------------------------------------------------------------------
-# 4. 退出状态检查
+# 3. 退出状态检查
 # -------------------------------------------------------------------
 if "logged_out" not in st.session_state:
     st.session_state["logged_out"] = False
 
-# 如果点击了退出，只显示退出界面
 if st.session_state["logged_out"]:
-    # 默认语言 fallback
     lang_code = st.session_state.get("lang_code", "zh")
     t = I18N[lang_code]
     st.info(t["logout_msg"])
@@ -88,15 +64,13 @@ if st.session_state["logged_out"]:
     st.stop()
 
 # -------------------------------------------------------------------
-# 5. 侧边栏渲染 (高度瘦身 + 支持退出)
+# 4. 侧边栏（纯原生控件，无 CSS，极简不挡屏）
 # -------------------------------------------------------------------
 with st.sidebar:
-    # 横向紧凑单选框
     lang_choice = st.radio(
         label="Language / 语言",
         options=["中文", "English"],
-        index=0,
-        horizontal=True
+        index=0
     )
     lang_code = "zh" if lang_choice == "中文" else "en"
     st.session_state["lang_code"] = lang_code
@@ -104,24 +78,21 @@ with st.sidebar:
 
     st.divider()
 
-    # 简短介绍
-    st.markdown(f"**{t['about_title']}**")
-    st.caption(t['about_desc'])
+    st.write(f"**{t['about_title']}**")
+    st.caption(t["about_desc"])
 
     st.divider()
 
-    # 退出按钮
     if st.button(t["logout_btn"], use_container_width=True):
         st.session_state["logged_out"] = True
         st.rerun()
 
 # -------------------------------------------------------------------
-# 6. 主界面渲染
+# 5. 主界面渲染
 # -------------------------------------------------------------------
 st.title(t["title"])
 st.caption(t["subtitle"])
 
-# value="" 设为空字符串，不再默认塞入 AAPL
 symbol = st.text_input(
     label=t["input_label"], 
     value="", 
