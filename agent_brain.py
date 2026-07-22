@@ -4,7 +4,8 @@ import yfinance as yf
 from typing import TypedDict, Annotated, Sequence
 import operator
 from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
-from langchain_openai import ChatOpenAI
+# from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
@@ -77,10 +78,10 @@ def build_llm():
     if not gemini_key:
         raise ValueError("❌ 未找到 GEMINI_API_KEY，请在 Streamlit Secrets 里添加 GEMINI_API_KEY")
     
-    llm = ChatOpenAI(
-        model="gemini-1.5-flash",
-        api_key=gemini_key,
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai",  # 👈 精确写成这样，末尾不要带斜杠 /
+    # 使用官方推荐的模型别名 gemini-1.5-flash-latest
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-1.5-flash-latest",
+        google_api_key=gemini_key,
         temperature=0.2,
         streaming=True
     )
