@@ -80,7 +80,7 @@ def build_llm():
     
     # 使用官方推荐的模型别名 gemini-1.5-flash-latest
     llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash-lite",
+        model="gemini-2.0-flash-lite",
         google_api_key=gemini_key,
         temperature=0.2,
         streaming=True
