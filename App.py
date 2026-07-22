@@ -1,73 +1,86 @@
+# App.py
+
 import streamlit as st
 from agent_brain import run_agent
 
+st.set_page_config(page_title="MCZ Stock Analysis", layout="wide")
+
 # -------------------------------------------------------------------
-# 1. 界面所有静态文本的国际化字典 (i18n)
+# 1. CSS 调整：缩小侧边栏宽度
+# -------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+        section[data-testid="stSidebar"] {
+            width: 250px !important; /* 缩小侧边栏宽度 */
+        }
+    </style>
+    """,
+    unsafe_allow_code=True
+)
+
+# -------------------------------------------------------------------
+# 2. i18n 字典（含新增的系统介绍）
 # -------------------------------------------------------------------
 I18N = {
     "zh": {
-        "page_title": "MCZ 股票分析系统",
-        "title": "📈 MCZ StockAnalysis-Lite (AI 智能股票分析系统)",
-        "sidebar_header": "设置",
-        "lang_label": "界面与输出语言 / Language",
-        "input_label": "请输入要分析的股票代码（例如 AAPL, TSLA）：",
+        "title": "📈 MCZ StockAnalysis-Lite",
+        "about_title": "💡 系统简介",
+        "about_desc": "本系统基于 LangGraph 与 Gemini 驱动，结合实时技术指标（MA20、RSI14），一键生成机构级股票多维度分析报告。",
+        "lang_label": "语言 / Language",
+        "input_label": "请输入股票代码：",
         "input_placeholder": "例如：AAPL",
-        "analyze_btn": "开始智能分析",
-        "warning_empty": "⚠️ 请先输入股票代码！",
-        "spinner_msg": "🤖 AI Agent 正在实时拉取数据并生成分析报告，请稍候...",
-        "error_msg": "❌ 分析过程中发生错误："
+        "analyze_btn": "开始分析",
+        "warning_empty": "⚠️ 请输入有效的股票代码！",
+        "spinner_msg": "🤖 正在获取数据并生成报告，请稍候...",
+        "error_msg": "❌ 分析过程发生错误："
     },
     "en": {
-        "page_title": "MCZ Stock Analysis System",
-        "title": "📈 MCZ StockAnalysis-Lite (AI Stock Analysis System)",
-        "sidebar_header": "Settings",
+        "title": "📈 MCZ StockAnalysis-Lite",
+        "about_title": "💡 About",
+        "about_desc": "Powered by LangGraph & Gemini. Combines real-time technicals (MA20, RSI14) to generate institutional-grade stock analysis reports.",
         "lang_label": "Language / 语言",
-        "input_label": "Enter Stock Ticker to Analyze (e.g., AAPL, TSLA):",
+        "input_label": "Enter Stock Ticker:",
         "input_placeholder": "e.g. AAPL",
-        "analyze_btn": "Start Analysis",
-        "warning_empty": "⚠️ Please enter a valid stock ticker!",
-        "spinner_msg": "🤖 AI Agent is fetching data and generating the report, please wait...",
+        "analyze_btn": "Analyze",
+        "warning_empty": "⚠️ Please enter a stock ticker!",
+        "spinner_msg": "🤖 Fetching data & generating report...",
         "error_msg": "❌ An error occurred during analysis:"
     }
 }
 
 # -------------------------------------------------------------------
-# 2. 侧边栏：语言切换选择器（默认中文 index=0）
+# 3. 侧边栏渲染
 # -------------------------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ Settings")
+    # 1. 语言选择（默认中文 index=0）
     lang_choice = st.radio(
         label="Language / 语言",
         options=["中文", "English"],
-        index=0  # 0 对应第一个选项“中文”，实现默认中文
+        index=0
     )
-    # 将选择映射为语言代码 "zh" 或 "en"
     lang_code = "zh" if lang_choice == "中文" else "en"
     t = I18N[lang_code]
 
-# 动态设置页面 Title
-st.set_page_config(page_title=t["page_title"], layout="wide")
+    st.divider()
+
+    # 2. 简短系统介绍
+    st.markdown(f"**{t['about_title']}**")
+    st.caption(t['about_desc'])
 
 # -------------------------------------------------------------------
-# 3. 主界面渲染（根据选择的语言动态显示）
+# 4. 主界面
 # -------------------------------------------------------------------
 st.title(t["title"])
 
-# 输入框
-symbol = st.text_input(
-    label=t["input_label"], 
-    value="AAPL", 
-    placeholder=t["input_placeholder"]
-)
+symbol = st.text_input(label=t["input_label"], value="AAPL", placeholder=t["input_placeholder"])
 
-# 点击按钮触发分析
 if st.button(t["analyze_btn"], type="primary"):
     if not symbol.strip():
         st.warning(t["warning_empty"])
     else:
         with st.spinner(t["spinner_msg"]):
             try:
-                # 关键：将 lang_code ("zh" 或 "en") 传给后台 Agent
                 response = run_agent(symbol=symbol.strip(), lang=lang_code)
                 st.markdown(response)
             except Exception as e:
