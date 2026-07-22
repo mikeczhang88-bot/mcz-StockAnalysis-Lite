@@ -80,7 +80,7 @@ def build_llm():
     llm = ChatOpenAI(
         model="gemini-1.5-flash",
         api_key=gemini_key,
-        base_url="https://generativelanguage.googleapis.com/openai/",  # 👈 注意：去掉 v1beta
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",  # 👈 精确写成这样，末尾不要带斜杠 /
         temperature=0.2,
         streaming=True
     )
