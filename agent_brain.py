@@ -74,8 +74,8 @@ def build_llm():
     if not gemini_key:
         raise ValueError("❌ 未找到 GEMINI_API_KEY，请在 Streamlit Secrets 里添加 GEMINI_API_KEY")
 
-    # 显式使用现役稳定的 gemini-2.5-flash 模型（也可替换为 gemini-2.0-flash）
-    selected_model = "gemini-2.5-flash"
+    # 显式使用现役稳定的 gemini-2.0-flash 模型（也可替换为 gemini-2.0-flash）
+    selected_model = "gemini-2.0-flash"
 
     llm = ChatGoogleGenerativeAI(
         model=selected_model,
